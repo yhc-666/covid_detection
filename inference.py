@@ -8,7 +8,7 @@ img_path = 'test_set/covid/covid0.png'
 img = Image.open(img_path).resize((150, 150))
 
 # convert PIL image to a numpy array and normalize
-img_array = np.array(img).astype('float32') / 255.
+img_array = np.array(img).astype('float32')
 img_array = np.transpose(img_array, (2, 0, 1))  # Change shape to (channels, height, width)
 img_array = np.expand_dims(img_array, axis=0)
 

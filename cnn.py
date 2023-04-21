@@ -25,3 +25,6 @@ class CNNModel(nn.Module):
         x = F.relu(self.fc1(x))
         x = torch.sigmoid(self.fc2(x))
         return x
+
+model = CNNModel()
+print(model)
