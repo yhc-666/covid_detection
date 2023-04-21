@@ -1,94 +1,126 @@
-import tensorflow as tf
-from PIL import Image
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
-from cnn import ImageClassificationModel
+from cnn import CNNModel
 
 
+# Directories
 train_dir = './train_set/'
-
 test_dir = './test_set/'
 
-# Use ImageDataGenerator for data augmentation
-train_datagen = tf.keras.preprocessing.image.ImageDataGenerator(
-    rescale=1. / 255,
-    rotation_range=40,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.2,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    fill_mode='nearest')
+# Image transformations for train and test sets
+train_transforms = transforms.Compose([
+    transforms.RandomRotation(40),
+    transforms.RandomResizedCrop(150, scale=(0.8, 1.0)),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
 
-'''
-rescale: A scaling factor for the pixel values of the input images. In this case, the pixel values are rescaled to be between 0 and 1 by dividing them by 255.
-rotation_range: A range, in degrees, within which to randomly rotate the input images.
-width_shift_range and height_shift_range: Ranges within which to randomly shift the width and height dimensions of the input images, as a fraction of the total width and height.\
-shear_range: A range, in radians, within which to randomly apply shearing transformations to the input images.
-zoom_range: A range, as a fraction of the original size, within which to randomly zoom into the input images.
-horizontal_flip: A boolean indicating whether to randomly flip input images horizontally.
-fill_mode: The strategy for filling in newly created pixels that may have been introduced during image transformations, such as rotation or shifting. In this case, the strategy is to fill in the nearest pixel value.
-'''
+test_transforms = transforms.Compose([
+    transforms.Resize(150),
+    transforms.CenterCrop(150),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
 
-train_generator = train_datagen.flow_from_directory(
-    directory=train_dir,
-    target_size=(150, 150),
-    class_mode='binary',
-    batch_size=20
-)
+# Load datasets
+train_dataset = datasets.ImageFolder(train_dir, transform=train_transforms)
+test_dataset = datasets.ImageFolder(test_dir, transform=test_transforms)
 
-test_datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1. / 255)
-test_generator = train_datagen.flow_from_directory(
-    directory=test_dir,
-    target_size=(150, 150),
-    class_mode='binary',
-    batch_size=20
-)
+# Data loaders
+train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=20, shuffle=False)
 
-if __name__ == '__main__':
-    data, lables = next(train_generator)
-    print(data.shape)  # (20, 128, 128, 3)
-    print(lables.shape)  # (20,)
-    img_test = Image.fromarray((255 * data[0]).astype('uint8'))
-    img_test.show()
-    print(lables[0])
+# Instantiate the model
+model = CNNModel()
+print(model)
 
-    # build our model from cnn.py
-    model = ImageClassificationModel()
-    model.compile(optimizer=tf.keras.optimizers.RMSprop(learning_rate=1e-4),
-                  loss='binary_crossentropy',
-                  metrics=['acc'])
+# Loss and optimizer
+criterion = nn.BCELoss()
+optimizer = optim.RMSprop(model.parameters(), lr=1e-4)
 
-    # train the model
-    history = model.fit_generator(
-        train_generator,
-        steps_per_epoch=train_generator.samples/train_generator.batch_size,
-        epochs=500,
-        validation_data=test_generator,
-        validation_steps=test_generator.samples/test_generator.batch_size
-    )
+# Training loop
+num_epochs = 500
+training_losses = []
+validation_losses = []
+training_accuracies = []
+validation_accuracies = []
 
-    # print the acc of our model on test set
-    test_eval = model.evaluate_generator(test_generator)
-    print(test_eval)
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    running_corrects = 0
 
-    # save the model
-    model.save('./savedmodel/ourmodel')
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        outputs = outputs.view(-1)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
 
-    # plot and save the figures for 'Training and validation accuracy' and 'Training and validation loss'
-    acc = history.history['acc']
-    val_acc = history.history['val_acc']
-    loss = history.history['loss']
-    val_loss = history.history['val_loss']
-    epochs = range(1, len(acc) + 1)
-    plt.plot(epochs, acc, 'bo', label='Training acc')
-    plt.plot(epochs, val_acc, 'b', label='Validation acc')
-    plt.title('Training and validation accuracy')
-    plt.legend()
-    plt.savefig('accuracy.png')
-    plt.figure()
-    plt.plot(epochs, loss, 'bo', label='Training loss')
-    plt.plot(epochs, val_loss, 'b', label='Validation loss')
-    plt.title('Training and validation loss')
-    plt.legend()
-    plt.savefig('loss.png')
+        running_loss += loss.item()
+
+        # Compute accuracy
+        preds = torch.round(outputs)
+        running_corrects += torch.sum(preds == labels.data.float())
+
+    # Calculate average loss and accuracy
+    epoch_loss = running_loss / len(train_loader)
+    epoch_acc = running_corrects / len(train_dataset)
+
+    training_losses.append(epoch_loss)
+    training_accuracies.append(epoch_acc.item())
+
+    # Validation loop
+    model.eval()
+    val_running_loss = 0.0
+    val_running_corrects = 0
+
+    with torch.no_grad():
+        for val_inputs, val_labels in test_loader:
+            val_outputs = model(val_inputs)
+            val_outputs = val_outputs.view(-1)
+            val_loss = criterion(val_outputs, val_labels.float())
+
+            val_running_loss += val_loss.item()
+
+            # Compute validation accuracy
+            val_preds = torch.round(val_outputs)
+            val_running_corrects += torch.sum(val_preds == val_labels.data.float())
+
+        # Calculate average validation loss and accuracy
+        val_epoch_loss = val_running_loss / len(test_loader)
+        val_epoch_acc = val_running_corrects / len(test_dataset)
+
+        validation_losses.append(val_epoch_loss)
+        validation_accuracies.append(val_epoch_acc.item())
+
+    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.4f}, Acc: {epoch_acc:.4f}, Val_Loss: {val_epoch_loss:.4f}, Val_Acc: {val_epoch_acc:.4f}')
+
+torch.save(model.state_dict(), './savedmodel/trained_model.pth')
+
+# Plot training and validation accuracy
+plt.figure()
+plt.plot(range(1, num_epochs + 1), training_accuracies, 'ro', label='Training acc')
+plt.plot(range(1, num_epochs + 1), validation_accuracies, 'b', label='Validation acc')
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.savefig('accuracy.png')
+
+# Plot training and validation loss
+plt.figure()
+plt.plot(range(1, num_epochs + 1), training_losses, 'ro', label='Training loss')
+plt.plot(range(1, num_epochs + 1), validation_losses, 'b', label='Validation loss')
+plt.title('Training and Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.savefig('loss.png')
 

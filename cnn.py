@@ -1,32 +1,27 @@
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-class ImageClassificationModel(tf.keras.Model):
+
+class CNNModel(nn.Module):
     def __init__(self):
-        super(ImageClassificationModel, self).__init__()
-        self.conv1 = tf.keras.layers.Conv2D(filters=32, kernel_size=(3, 3), activation='relu', input_shape=(150, 150, 3))
-        self.pool1 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
-        self.conv2 = tf.keras.layers.Conv2D(filters=64, kernel_size=(3, 3), activation='relu')
-        self.pool2 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
-        self.conv3 = tf.keras.layers.Conv2D(filters=128, kernel_size=(3, 3), activation='relu')
-        self.pool3 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
-        self.conv4 = tf.keras.layers.Conv2D(filters=128, kernel_size=(3, 3), activation='relu')
-        self.pool4 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
-        self.flatten = tf.keras.layers.Flatten()
-        self.dropout = tf.keras.layers.Dropout(rate=0.5)
-        self.dense1 = tf.keras.layers.Dense(units=512, activation='relu')
-        self.dense2 = tf.keras.layers.Dense(units=1, activation='sigmoid')
+        super(CNNModel, self).__init__()
+        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+        self.conv4 = nn.Conv2d(128, 128, 3, padding=1)
+        self.fc1 = nn.Linear(128 * 9 * 9, 512)
+        self.fc2 = nn.Linear(512, 1)
+        self.dropout = nn.Dropout(0.5)
 
-    def call(self, inputs):
-        x = self.conv1(inputs)
-        x = self.pool1(x)
-        x = self.conv2(x)
-        x = self.pool2(x)
-        x = self.conv3(x)
-        x = self.pool3(x)
-        x = self.conv4(x)
-        x = self.pool4(x)
-        x = self.flatten(x)
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = self.pool(F.relu(self.conv4(x)))
+        x = x.view(-1, 128 * 9 * 9)
         x = self.dropout(x)
-        x = self.dense1(x)
-        outputs = self.dense2(x)
-        return outputs
+        x = F.relu(self.fc1(x))
+        x = torch.sigmoid(self.fc2(x))
+        return x
